@@ -48,13 +48,13 @@ class PositionKalmanFilter(Node):
         # TODO tuning knob
         # dimnesion: num measurements x num measurements
         # attention, this size is varying! -> Depends on detected Tags
-        self.R = np.eye(4)
+        # self.R = np.eye(4)
 
         # TODO enter tag poses here
         # TODO in the experiment, the tags will not be in these exact positions
         # however, the relative positions between tags will be the same
-        self.tag_poses = np.array([[0.7, 3.8, -0.5], [0.0, 0.0, 0.0],
-                                   [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+        self.tag_poses = np.array([[0.7, 3.8, -0.5], [1.3, 3.8, -0.5],
+                                   [0.7, 3.8, -0.9], [1.3, 3.8, -0.9]])
 
         self.position_pub = self.create_publisher(msg_type=PoseStamped,
                                                   topic='position_estimate',
@@ -82,14 +82,14 @@ class PositionKalmanFilter(Node):
         detected_tag_poses = np.zeros((num_measurements, 3))
         distance_measurements = np.zeros((num_measurements, 1))
 
-        for i, measurement in enumerate(ranges_msg.measurements):
+        for index, measurement in enumerate(ranges_msg.measurements):
             # TODO
             # What tag id was this?
-            tag_id = measurement.id
+            tag_id = int(measurement.id)
 
-            # Save the according tag position
-            detected_tag_poses[i, :] = self.tag_poses[tag_id, :]
-            distance_measurements[i, 0] = measurement.range
+            # add this tag's information to list of detected tags
+            detected_tag_poses[index, :] = self.tag_poses[tag_id, :]
+            distance_measurements[index, 0] = measurement.range
 
         # before the measurement update, let's do a process update
         now = self.get_clock().now()
@@ -112,18 +112,52 @@ class PositionKalmanFilter(Node):
 
     def measurement_update(self, detected_tags_poses, distance_measurements):
         # TODO
-        # What's h(x)?
+        current_position = np.copy(self.x[0:3, 0])
 
-        # self.x = ....
-        # self.P = ....
-        pass
+        num_measurements = np.shape(distance_measurements)[0]
+        R = 0.1 * np.eye(num_measurements)
+
+        z_est = np.zeros((num_measurements, 1))
+        H = np.zeros((num_measurements, self.num_states))
+
+        # self.get_logger().info(f"Number of measurements: {num_measurements}")
+
+        for index, tag_pose in enumerate(detected_tags_poses):
+
+            # self.get_logger().info(f"tag_pose: {tag_pose}, with index: {index}")
+
+            dist_est = np.sqrt((current_position[0] - tag_pose[0])**2 +
+                               (current_position[1] - tag_pose[1])**2 +
+                               (current_position[2] - tag_pose[2])**2)
+            z_est[index, 0] = dist_est
+
+            # dh / dx = 1/2 * (dist ** 2)^(-1/2) * (2 * (x1 - t1) * 1)
+            H[index, 0:3] = [(current_position[0] - tag_pose[0] / dist_est),
+                             (current_position[1] - tag_pose[1] / dist_est),
+                             (current_position[2] - tag_pose[2] / dist_est)]
+
+        y = distance_measurements - z_est
+
+        # compute K gain
+        # self.get_logger().info(
+        #     f"H: {H}, shape: {np.shape(H)}. P: {self.P}, shape: {np.shape(self.P)}, R: {R}, shape: {np.shape(R)}"
+        # )
+        tmp = np.matmul(np.matmul(H, self.P), H.transpose()) + R
+        K = np.matmul(np.matmul(self.P, H.transpose()), np.linalg.inv(tmp))
+
+        # update state
+        self.x = self.x + np.matmul(K, y)
+        # update covariance
+        P_tmp = np.eye(self.num_states) - np.matmul(K, H)
+        self.P = np.matmul(P_tmp, self.P)
 
     def process_update(self, dt: float):
         # TODO
+        A = np.eye(3)
 
-        # self.x = ....
-        # self.P = ....
-        pass
+        self.x = np.matmul(np.copy(A), self.x)
+        self.P = np.matmul(np.matmul(np.copy(A), np.copy(self.P)),
+                           (np.transpose(np.copy(A)))) + self.Q
 
     def publish_pose_msg(self, state: np.ndarray, now: rclpy.time.Time) -> None:
         msg = PoseStamped()
