@@ -120,8 +120,6 @@ class PositionKalmanFilter(Node):
         z_est = np.zeros((num_measurements, 1))
         H = np.zeros((num_measurements, self.num_states))
 
-        # self.get_logger().info(f"Number of measurements: {num_measurements}")
-
         for index, tag_pose in enumerate(detected_tags_poses):
 
             # self.get_logger().info(f"tag_pose: {tag_pose}, with index: {index}")
@@ -138,10 +136,6 @@ class PositionKalmanFilter(Node):
 
         y = distance_measurements - z_est
 
-        # compute K gain
-        # self.get_logger().info(
-        #     f"H: {H}, shape: {np.shape(H)}. P: {self.P}, shape: {np.shape(self.P)}, R: {R}, shape: {np.shape(R)}"
-        # )
         tmp = np.matmul(np.matmul(H, self.P), H.transpose()) + R
         K = np.matmul(np.matmul(self.P, H.transpose()), np.linalg.inv(tmp))
 
