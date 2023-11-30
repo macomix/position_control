@@ -16,6 +16,7 @@ def generate_launch_description() -> LaunchDescription:
     group = GroupAction([
         PushRosNamespace(LaunchConfiguration('vehicle_name')),
         Node(executable='kalman_filter.py', package='position_control'),
+        Node(executable='ranges_debugger.py', package='position_control')
         # add more here (e.g. controller)
     ])
     launch_description.add_action(group)
