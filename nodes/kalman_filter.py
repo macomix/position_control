@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import rclpy
-from hippo_msgs.msg import RangeMeasurementArray
+from hippo_msgs.msg import RangeMeasurementArray, RangeMeasurement
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rcl_interfaces.msg import SetParametersResult
 from geometry_msgs.msg import PoseStamped
 
 import numpy as np
@@ -16,6 +17,8 @@ class PositionKalmanFilter(Node):
         qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                          history=QoSHistoryPolicy.KEEP_LAST,
                          depth=1)
+
+        self.init_params()
 
         self.time_last_prediction = self.get_clock().now()
 
@@ -33,7 +36,7 @@ class PositionKalmanFilter(Node):
         # TODO initial state covariance is tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
-        self.P0 = np.eye(self.num_states)
+        self.P0 = 0.1 * np.eye(self.num_states)
 
         # state covariance, this will be updated in Kalman filter algorithm
         self.P = self.P0
@@ -42,13 +45,14 @@ class PositionKalmanFilter(Node):
         # TODO tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
-        self.Q = np.eye(self.num_states)
+        self.process_noise_position_stddev = 0.1
+        self.Q = (self.range_noise_stddev**2) * np.eye(self.num_states)
 
         # measurement noise covariance - how much noise does the measurement contain?
         # TODO tuning knob
+        self.range_noise_stddev = 0.1
         # dimnesion: num measurements x num measurements
         # attention, this size is varying! -> Depends on detected Tags
-        # self.R = np.eye(4)
 
         # TODO enter tag poses here
         # TODO in the experiment, the tags will not be in these exact positions
@@ -70,6 +74,34 @@ class PositionKalmanFilter(Node):
         self.process_update_timer = self.create_timer(
             1 / 50, self.on_process_update_timer)
 
+    def init_params(self):
+        self.declare_parameters(namespace='',
+                                parameters=[('range_noise_stddev',
+                                             rclpy.Parameter.Type.DOUBLE),
+                                            ('process_noise_position_stddev',
+                                             rclpy.Parameter.Type.DOUBLE)])
+        param = self.get_parameter('range_noise_stddev')
+        self.get_logger().info(f'{param.name}={param.value}')
+        self.range_noise_stddev = param.value
+
+        param = self.get_parameter('process_noise_position_stddev')
+        self.get_logger().info(f'{param.name}={param.value}')
+        self.process_noise_position_stddev = param.value
+
+    def on_params_changed(self, params):
+        param: rclpy.Parameter
+        for param in params:
+            self.get_logger().info(f'Try to set [{param.name}] = {param.value}')
+            if param.name == 'range_noise_stddev':
+                self.range_noise_stddev = param.value
+            elif param.name == 'process_noise_position_stddev':
+                self.process_noise_position_stddev = param.value
+                self.Q = (self.process_noise_position_stddev**2) * np.eye(
+                    self.num_states)
+            else:
+                continue
+        return SetParametersResult(successful=True, reason='Parameter set')
+
     def on_ranges(self, ranges_msg: RangeMeasurementArray) -> None:
         # how many tags are detected?
         num_measurements = len(ranges_msg._measurements)
@@ -82,6 +114,7 @@ class PositionKalmanFilter(Node):
         detected_tag_poses = np.zeros((num_measurements, 3))
         distance_measurements = np.zeros((num_measurements, 1))
 
+        measurement: RangeMeasurement
         for index, measurement in enumerate(ranges_msg.measurements):
             # TODO
             # What tag id was this?
@@ -115,14 +148,12 @@ class PositionKalmanFilter(Node):
         current_position = np.copy(self.x[0:3, 0])
 
         num_measurements = np.shape(distance_measurements)[0]
-        R = 0.1 * np.eye(num_measurements)
+        R = (self.range_noise_stddev**2) * np.eye(num_measurements)
 
         z_est = np.zeros((num_measurements, 1))
         H = np.zeros((num_measurements, self.num_states))
 
         for index, tag_pose in enumerate(detected_tags_poses):
-
-            # self.get_logger().info(f"tag_pose: {tag_pose}, with index: {index}")
 
             dist_est = np.sqrt((current_position[0] - tag_pose[0])**2 +
                                (current_position[1] - tag_pose[1])**2 +

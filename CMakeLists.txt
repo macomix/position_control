@@ -11,7 +11,7 @@ install(PROGRAMS
 )
 
 install(
-  DIRECTORY launch
+  DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 
