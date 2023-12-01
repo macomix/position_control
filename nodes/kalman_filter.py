@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
+import numpy as np
 import rclpy
-from hippo_msgs.msg import RangeMeasurementArray, RangeMeasurement
+from geometry_msgs.msg import PoseStamped
+from hippo_msgs.msg import RangeMeasurement, RangeMeasurementArray
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
-from rcl_interfaces.msg import SetParametersResult
-from geometry_msgs.msg import PoseStamped
-
-import numpy as np
 
 
 class PositionKalmanFilter(Node):
@@ -22,7 +21,8 @@ class PositionKalmanFilter(Node):
 
         self.time_last_prediction = self.get_clock().now()
 
-        # TODO Assuming state consists of position x,y,z -> Feel free to add more!
+        # TODO Assuming state consists of position x,y,z -> Feel free to add
+        # more!
         self.num_states = 3
 
         # initial state
@@ -30,7 +30,7 @@ class PositionKalmanFilter(Node):
         self.x0 = np.zeros((self.num_states, 1))
 
         # state, this will be updated in Kalman filter algorithm
-        self.x = self.x0
+        self.state = np.copy(self.x0)
 
         # initial state covariance - how sure are we about the state?
         # TODO initial state covariance is tuning knob
@@ -41,14 +41,16 @@ class PositionKalmanFilter(Node):
         # state covariance, this will be updated in Kalman filter algorithm
         self.P = self.P0
 
-        # process noise covariance - how much noise do we add at each process update step?
+        # process noise covariance - how much noise do we add at each process
+        # update step?
         # TODO tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
         self.process_noise_position_stddev = 0.1
         self.Q = (self.range_noise_stddev**2) * np.eye(self.num_states)
 
-        # measurement noise covariance - how much noise does the measurement contain?
+        # measurement noise covariance - how much noise does the measurement
+        # contain?
         # TODO tuning knob
         self.range_noise_stddev = 0.1
         # dimnesion: num measurements x num measurements
@@ -72,7 +74,7 @@ class PositionKalmanFilter(Node):
 
         # do process update with 50 Hz
         self.process_update_timer = self.create_timer(
-            1 / 50, self.on_process_update_timer)
+            1.0 / 50, self.on_process_update_timer)
 
     def init_params(self):
         self.declare_parameters(namespace='',
@@ -141,11 +143,11 @@ class PositionKalmanFilter(Node):
         self.time_last_prediction = now
 
         # publish the estimated pose with constant rate
-        self.publish_pose_msg(state=np.copy(self.x), now=now)
+        self.publish_pose_msg(state=np.copy(self.state), now=now)
 
-    def measurement_update(self, detected_tags_poses, distance_measurements):
+    def measurement_update(self, tag_positions, distance_measurements):
         # TODO
-        current_position = np.copy(self.x[0:3, 0])
+        vehicle_position = np.copy(self.state[0:3, 0])
 
         num_measurements = np.shape(distance_measurements)[0]
         R = (self.range_noise_stddev**2) * np.eye(num_measurements)
@@ -153,36 +155,41 @@ class PositionKalmanFilter(Node):
         z_est = np.zeros((num_measurements, 1))
         H = np.zeros((num_measurements, self.num_states))
 
-        for index, tag_pose in enumerate(detected_tags_poses):
-
-            dist_est = np.sqrt((current_position[0] - tag_pose[0])**2 +
-                               (current_position[1] - tag_pose[1])**2 +
-                               (current_position[2] - tag_pose[2])**2)
+        for index, tag_position in enumerate(tag_positions):
+            distance_vector = tag_position - vehicle_position
+            # this is the distance that we would have expected based on the
+            # current estimate of the vehicle position.
+            dist_est = np.linalg.norm(distance_vector)
             z_est[index, 0] = dist_est
 
             # dh / dx = 1/2 * (dist ** 2)^(-1/2) * (2 * (x1 - t1) * 1)
-            H[index, 0:3] = [(current_position[0] - tag_pose[0] / dist_est),
-                             (current_position[1] - tag_pose[1] / dist_est),
-                             (current_position[2] - tag_pose[2] / dist_est)]
+            H[index, 0:3] = [(vehicle_position[0] - tag_position[0] / dist_est),
+                             (vehicle_position[1] - tag_position[1] / dist_est),
+                             (vehicle_position[2] - tag_position[2] / dist_est)]
 
         y = distance_measurements - z_est
 
-        tmp = np.matmul(np.matmul(H, self.P), H.transpose()) + R
-        K = np.matmul(np.matmul(self.P, H.transpose()), np.linalg.inv(tmp))
+        # tmp = np.matmul(np.matmul(H, self.P), H.transpose()) + R
+        # K = np.matmul(np.matmul(self.P, H.transpose()), np.linalg.inv(tmp))
+        # @nbauschmann why not the notation below?
+        tmp = H @ self.P @ H.transpose() + R
+        K = self.P @ H.transpose() @ np.linalg.inv(tmp)
 
         # update state
-        self.x = self.x + np.matmul(K, y)
+        self.state = self.state + K @ y
         # update covariance
-        P_tmp = np.eye(self.num_states) - np.matmul(K, H)
-        self.P = np.matmul(P_tmp, self.P)
+        P_tmp = np.eye(self.num_states) - K @ H
+        self.P = P_tmp @ self.P
 
     def process_update(self, dt: float):
         # TODO
         A = np.eye(3)
 
-        self.x = np.matmul(np.copy(A), self.x)
-        self.P = np.matmul(np.matmul(np.copy(A), np.copy(self.P)),
-                           (np.transpose(np.copy(A)))) + self.Q
+        # self.state = np.matmul(np.copy(A), self.state)
+        self.state = A @ self.state
+        # self.P = np.matmul(np.matmul(np.copy(A), np.copy(self.P)),
+        #                   (np.transpose(np.copy(A)))) + self.Q
+        self.P = A @ self.P @ A.transpose() + self.Q
 
     def publish_pose_msg(self, state: np.ndarray, now: rclpy.time.Time) -> None:
         msg = PoseStamped()
