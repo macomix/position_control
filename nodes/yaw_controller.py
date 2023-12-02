@@ -59,7 +59,9 @@ class YawController(Node):
     def compute_control_output(self, yaw):
         # very important: normalize the angle error!
         error = self.wrap_pi(self.setpoint - yaw)
-        return 0.1 * error
+
+        p_gain = 0.1  # turned out to be a good value
+        return p_gain * error
 
     def publish_control_output(self, control_output: float,
                                timestamp: rclpy.time.Time):
