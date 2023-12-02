@@ -13,21 +13,23 @@ class YawController(Node):
 
     def __init__(self):
         super().__init__(node_name='yaw_controller')
-        # default value for the yaw setpoint
-        self.setpoint = math.pi / 2.0
         qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                          history=QoSHistoryPolicy.KEEP_LAST,
                          depth=1)
+
+        # default value for the yaw setpoint
+        self.setpoint = math.pi / 2.0
+
         self.vision_pose_sub = self.create_subscription(
             msg_type=PoseWithCovarianceStamped,
             topic='vision_pose_cov',
             callback=self.on_vision_pose,
             qos_profile=qos)
-
         self.setpoint_sub = self.create_subscription(Float64Stamped,
                                                      topic='~/setpoint',
                                                      callback=self.on_setpoint,
                                                      qos_profile=qos)
+
         self.torque_pub = self.create_publisher(msg_type=ActuatorSetpoint,
                                                 topic='torque_setpoint',
                                                 qos_profile=1)
@@ -55,7 +57,7 @@ class YawController(Node):
         self.publish_control_output(control_output, timestamp)
 
     def compute_control_output(self, yaw):
-        # very important normalize the angle error!
+        # very important: normalize the angle error!
         error = self.wrap_pi(self.setpoint - yaw)
         return 0.1 * error
 
