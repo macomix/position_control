@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from hippo_msgs.msg import RangeMeasurement, RangeMeasurementArray
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+
+from tf_transformations import euler_from_quaternion
 
 
 class PositionKalmanFilter(Node):
@@ -70,7 +72,11 @@ class PositionKalmanFilter(Node):
             topic='ranges',
             callback=self.on_ranges,
             qos_profile=qos)
-
+        self.vision_pose_sub = self.create_subscription(
+            msg_type=PoseWithCovarianceStamped,
+            topic='vision_pose_cov',
+            callback=self.on_vision_pose,
+            qos_profile=qos)
         # do prediction step with 50 Hz
         self.process_update_timer = self.create_timer(
             1.0 / 50, self.on_prediction_step_timer)
@@ -124,6 +130,16 @@ class PositionKalmanFilter(Node):
 
         # TODO
         # self.measurement_update(...)
+
+    def on_vision_pose(self, msg: PoseWithCovarianceStamped):
+        # You might want to consider the vehicle's orientation
+
+        # get the vehicle orientation expressed as quaternion
+        q = msg.pose.pose.orientation
+        # convert quaternion to euler angles
+        (roll, pitch, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        # TODO
 
     def on_prediction_step_timer(self):
         # We will do a prediction step with a constant rate
