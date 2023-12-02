@@ -6,11 +6,12 @@ find_package(rclpy REQUIRED)
 
 install(PROGRAMS
   nodes/kalman_filter.py
+  nodes/ranges_debugger.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
-  DIRECTORY launch
+  DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 

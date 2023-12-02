@@ -1,0 +1,4 @@
+/**: # wildcard for the node name
+  ros__parameters:
+    range_noise_stddev: 0.1    # in m
+    process_noise_position_stddev: 0.1  # in m
