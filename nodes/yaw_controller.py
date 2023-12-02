@@ -14,7 +14,7 @@ class YawController(Node):
     def __init__(self):
         super().__init__(node_name='yaw_controller')
         # default value for the yaw setpoint
-        self.setpoint = math.pi
+        self.setpoint = math.pi / 2.0
         qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                          history=QoSHistoryPolicy.KEEP_LAST,
                          depth=1)
