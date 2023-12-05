@@ -1,0 +1,30 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/martin/fav/ros2_underlay/install/remote_control/include/**",
+        "/home/martin/fav/ros2_underlay/install/hippo_control/include/**",
+        "/home/martin/fav/ros2_underlay/install/px4_msgs/include/**",
+        "/home/martin/fav/ros2_underlay/install/path_planning/include/**",
+        "/home/martin/fav/ros2_underlay/install/mjpeg_cam/include/**",
+        "/home/martin/fav/ros2_underlay/install/hardware/include/**",
+        "/home/martin/fav/ros2_underlay/install/esc/include/**",
+        "/home/martin/fav/ros2_underlay/install/hippo_common/include/**",
+        "/home/martin/fav/ros2_underlay/install/hippo_msgs/include/**",
+        "/home/martin/fav/ros2_underlay/install/hippo_gz_msgs/include/**",
+        "/opt/ros/iron/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
