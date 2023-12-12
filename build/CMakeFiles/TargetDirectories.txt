@@ -1,9 +1,0 @@
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/uninstall.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/position_control_uninstall.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/test.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/edit_cache.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/rebuild_cache.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/list_install_components.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/install.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/install/local.dir
-/home/martin/fav/ros2/src/position_control/build/CMakeFiles/install/strip.dir

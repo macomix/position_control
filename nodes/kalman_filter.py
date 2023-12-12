@@ -211,7 +211,8 @@ class PositionKalmanFilter(Node):
     
     def get_jacobian_H(self, vehicle_position, measurements) -> np.ndarray:
         H = np.zeros((self.num_measurements, self.num_states))
-
+        # TODO: calculate distance from vehicle_pos and tags instead of using measured distance
+        
         for index, measurement in enumerate(measurements):
             tag_id = measurement[1]
             distance = measurement[0]

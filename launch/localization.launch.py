@@ -25,7 +25,8 @@ def generate_launch_description() -> LaunchDescription:
                  LaunchConfiguration('kf_params_file_path',
                                      default=kf_params_file_path)
              ]),
-        Node(executable='ranges_debugger.py', package='position_control')
+        Node(executable='ranges_debugger.py', package='position_control'),
+        Node(executable='pose_setpoint.py', package='position_control')
         # add more here
     ])
     launch_description.add_action(group)

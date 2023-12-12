@@ -26,7 +26,7 @@ class YawController(Node):
             callback=self.on_vision_pose,
             qos_profile=qos)
         self.setpoint_sub = self.create_subscription(Float64Stamped,
-                                                     topic='~/setpoint',
+                                                     topic='yaw_setpoint',
                                                      callback=self.on_setpoint,
                                                      qos_profile=qos)
 
