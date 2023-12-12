@@ -36,7 +36,7 @@ class PoseSetpointNode(Node):
         now = self.get_clock().now()
         time = self.start_time - now
 
-        position = np.array([1.0,2.0, -0.3])
+        position = np.array([1.0, 2.0, -0.3])
 
         function = 0
         match function:
@@ -55,26 +55,25 @@ class PoseSetpointNode(Node):
 
         yaw = np.deg2rad(90)
 
-        now = self.get_clock().now()
         self.publish_setpoint_position(setpoint=position, now=now)
         self.publish_setpoint_yaw(setpoint=yaw, now=now)
 
-    def publish_setpoint_position(self, setpoint: np.ndarray, now: rclpy.time.Time) -> None:
+    def publish_setpoint_position(self, setpoint: np.ndarray, now: rclpy.time.Time) -> None: # type: ignore
         msg = Vector3Stamped()
 
         msg.vector.x = setpoint[0]
         msg.vector.y = setpoint[1]
         msg.vector.z = setpoint[2]
 
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = now.to_msg()
         self.posistion_setpoint_pub.publish(msg)
 
-    def publish_setpoint_yaw(self, setpoint: float, now: rclpy.time.Time) -> None:
+    def publish_setpoint_yaw(self, setpoint: float, now: rclpy.time.Time) -> None: # type: ignore
         msg = Float64Stamped()
 
         msg.data = setpoint
 
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = now.to_msg()
         self.yaw_setpoint_pub.publish(msg)
 
 
