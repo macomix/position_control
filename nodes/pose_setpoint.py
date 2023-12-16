@@ -20,8 +20,12 @@ class PoseSetpointNode(Node):
         # change these parameters to adjust the setpoints
         self.duration = 30.0  # in seconds
 
-        self.posistion_setpoint_pub = self.create_publisher(msg_type=Vector3Stamped,
+        self.position_setpoint_pub = self.create_publisher(msg_type=Vector3Stamped,
                                                         topic='position_setpoint',
+                                                        qos_profile=1)
+        
+        self.velocity_setpoint_pub = self.create_publisher(msg_type=Vector3Stamped,
+                                                        topic='velocity_setpoint',
                                                         qos_profile=1)
 
         self.yaw_setpoint_pub = self.create_publisher(msg_type=Float64Stamped,
@@ -37,6 +41,7 @@ class PoseSetpointNode(Node):
         time = self.start_time - now
 
         position = np.array([1.0, 2.0, -0.3])
+        velocity = np.zeros(3)
 
         function = 0
         match function:
@@ -44,17 +49,23 @@ class PoseSetpointNode(Node):
                 # square sine
                 i = time.nanoseconds * 1e-9 % (self.duration * 2)
                 if i > (self.duration):
-                    position =  np.array([1.0,2.0, -0.3])
+                    position =  np.array([0.8, 2.0, -0.5])
                 else:
-                    position =  np.array([1.5,1.0, -0.3])
+                    position =  np.array([1.5, 2.5, -0.8])
+
+                # set the velocity for square wave zero
+                velocity = np.zeros(3)
             case 1:
                 # something
-                position =  position
+                posA = np.array([0.8, 2.0, -0.5])
+                posB = np.array([1.5, 2.5, -0.8])
+                pass
             case _:
-                position =  position
+                pass
 
         yaw = np.deg2rad(90)
 
+        self.publish_setpoint_velocity(velocity_setpoint=velocity, now=now)
         self.publish_setpoint_position(setpoint=position, now=now)
         self.publish_setpoint_yaw(setpoint=yaw, now=now)
 
@@ -66,7 +77,17 @@ class PoseSetpointNode(Node):
         msg.vector.z = setpoint[2]
 
         msg.header.stamp = now.to_msg()
-        self.posistion_setpoint_pub.publish(msg)
+        self.position_setpoint_pub.publish(msg)
+
+    def publish_setpoint_velocity(self, velocity_setpoint: np.ndarray, now: rclpy.time.Time) -> None: # type: ignore
+        msg = Vector3Stamped()
+
+        msg.vector.x = velocity_setpoint[0]
+        msg.vector.y = velocity_setpoint[1]
+        msg.vector.z = velocity_setpoint[2]
+
+        msg.header.stamp = now.to_msg()
+        self.velocity_setpoint_pub.publish(msg)
 
     def publish_setpoint_yaw(self, setpoint: float, now: rclpy.time.Time) -> None: # type: ignore
         msg = Float64Stamped()

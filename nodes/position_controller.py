@@ -28,12 +28,11 @@ class PositionControlNode(Node):
         self.current_setpoint = np.zeros(3)
         self.rotation_matrix = np.eye(3)
 
+        self.velocity = np.zeros(3)
+        self.setpoint_velocity = np.zeros(3)
+
         self.error_integral = np.zeros(3)
         self.last_time = self.get_clock().now().nanoseconds * 10e-9
-        self.last_error = np.zeros(3)
-
-        # save last error values to get a smooth value
-        self.smooth_error: list[np.ndarray] = [np.zeros(3)]
 
         # publisher
         self.thrust_pub = self.create_publisher(msg_type=ActuatorSetpoint,
@@ -50,9 +49,20 @@ class PositionControlNode(Node):
                                                      topic='position_setpoint',
                                                      callback=self.on_setpoint,
                                                      qos_profile=1)
+        
+        self.setpoint_velocity_sub = self.create_subscription(msg_type=Vector3Stamped,
+                                                     topic='velocity_setpoint',
+                                                     callback=self.on_setpoint_velocity,
+                                                     qos_profile=1)
+        
         self.position_sub = self.create_subscription(msg_type=PoseStamped,
                                                   topic='position_estimate',
                                                   callback=self.on_position,
+                                                  qos_profile=1)
+        
+        self.velocity_sub = self.create_subscription(msg_type=Vector3Stamped,
+                                                  topic='velocity_estimate',
+                                                  callback=self.on_velocity,
                                                   qos_profile=1)
         
         self.vision_pose_sub = self.create_subscription(
@@ -63,11 +73,11 @@ class PositionControlNode(Node):
 
     def on_setpoint(self, setpoint_msg: Vector3Stamped):
         # on setpoint message received save data
-        curr_setpoint_x = setpoint_msg.vector.x
-        curr_setpoint_y = setpoint_msg.vector.y
-        curr_setpoint_z = setpoint_msg.vector.z
-        
-        self.current_setpoint = np.array([curr_setpoint_x,curr_setpoint_y,curr_setpoint_z])
+        self.current_setpoint = np.array([setpoint_msg.vector.x,setpoint_msg.vector.y,setpoint_msg.vector.z])
+
+    def on_setpoint_velocity(self, setpoint_msg: Vector3Stamped):
+        # on setpoint velocity message received save data
+        self.setpoint_velocity = np.array([setpoint_msg.vector.x,setpoint_msg.vector.y,setpoint_msg.vector.z])
 
     def on_position(self, position_msg: PoseStamped):
         # on position message received calculate the thrust
@@ -88,6 +98,10 @@ class PositionControlNode(Node):
         thrust = self.compute_control_output(current_position, timestamp)
 
         self.publish_thrust(thrust=thrust, timestamp=timestamp)
+
+    def on_velocity(self, msg: Vector3Stamped):
+        # get the estimated velocity from the Kalman filter
+        self.velocity = np.array([msg.vector.x, msg.vector.y, msg.vector.z])
 
     def on_vision_pose(self, msg: PoseWithCovarianceStamped):
         # get the vehicle orientation expressed as quaternion
@@ -118,14 +132,14 @@ class PositionControlNode(Node):
     def compute_control_output(self, current_position: np.ndarray, 
                                timestamp: rclpy.time.Time) -> np.ndarray: # type: ignore
         # gains for each direction [k_p, k_i, k_d]
-        gain_x = np.array([0.5, 0.01, 0.0])
-        gain_y = np.array([0.5, 0.01, 0.0])
-        gain_z = np.array([0.5, 0.01, 0.0])
+        gain_x = np.array([1.0, 0.0, 3.0]) # 0.3
+        gain_y = np.array([1.0, 0.0, 3.0]) # 0.3
+        gain_z = np.array([1.0, 0.0, 3.0]) # 0.6
         gain = np.array([gain_x, gain_y, gain_z])
 
         # safe area for the robot to operate [min, max]
-        safe_space_x = np.array([-2, 2])
-        safe_space_y = np.array([-5, 5])
+        safe_space_x = np.array([0.1, 1.9])
+        safe_space_y = np.array([0.1, 3])
         safe_space_z = np.array([-0.8, -0.1])
         safe_space = np.array([safe_space_x, safe_space_y, safe_space_z])
 
@@ -136,35 +150,23 @@ class PositionControlNode(Node):
             dt = 0.0
 
         thrust = np.zeros(3)
-        derivative_error = np.zeros(3)
-        curr_smooth_error = np.zeros(3)
-        error_arr = np.zeros(3)
+        error = self.current_setpoint - current_position
+        derivative_error = self.setpoint_velocity - self.velocity
 
         # calculate thrust for each direction
+        # loop because we have to check if the robot is inside the safe area
         for i in range(3):
             pos = current_position[i]
-            error = self.current_setpoint[i] - pos
-            error_arr[i] = error
-
-            error_sum = np.sum(self.smooth_error, axis=0)[i]
-            curr_smooth_error[i] = (error_sum + error)/(len(self.smooth_error) +1)
             
             # only add thrust in the safe operating area [min, max]
             if pos < safe_space[i ,1] and pos > safe_space[i, 0]:
-                if error < 0.05:
-                    self.error_integral[i] = self.error_integral[i] + dt * error
+                if error[i] < 0.05:
+                    self.error_integral[i] = self.error_integral[i] + dt * error[i]
                 else:
                     self.error_integral[i] = 0
 
-                if dt > 0:
-                    d_error = (curr_smooth_error[i] - self.last_error[i])/dt
-                else:
-                    d_error = 0.0
-
-                derivative_error[i] = d_error
-
                 # final PID calculation!
-                thrust[i] = gain[i, 0] * error + gain[i, 1] * self.error_integral[i] + gain[i, 2] * d_error
+                thrust[i] = gain[i, 0] * error[i] + gain[i, 1] * self.error_integral[i] + gain[i, 2] * derivative_error[i]
 
                 # clamp thrust to the range of [-1, 1]
                 #thrust[i] = clamp(thrust[i], -1.0, 1.0)
@@ -172,19 +174,11 @@ class PositionControlNode(Node):
                 self.error_integral[i] = 0.0
                 thrust[i] = 0.0
 
-            self.last_error[i] = curr_smooth_error[i]
-
-        # add newly calculated derivative for smoothing
-        self.smooth_error.append(error_arr)
-        if(len(self.smooth_error)>10):
-            # if list is too long remove oldest element
-            self.smooth_error.pop(0)
-
         # convert to local space of the robot
         thrust = np.matmul(self.rotation_matrix.transpose(), thrust.reshape((-1,1)))
         
         # publish some information for debugging and documentation
-        self.publish_pid_info(gain, self.last_error, self.error_integral, derivative_error, timestamp)
+        self.publish_pid_info(gain, error, self.error_integral, derivative_error, timestamp)
 
         self.last_time = self.get_clock().now().nanoseconds * 10e-9
         return thrust.reshape(-1)

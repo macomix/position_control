@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Vector3Stamped
 from hippo_msgs.msg import RangeMeasurement, RangeMeasurementArray
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
@@ -44,7 +44,8 @@ class PositionKalmanFilter(Node):
         self.P = self.P0
 
         # process noise covariance - how much noise do we add at each
-        # prediction step?
+        # prediction step? -> the higher dt the more time between measurements
+        # which results in a higher uncertainty
         # TODO tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
@@ -76,6 +77,10 @@ class PositionKalmanFilter(Node):
         self.position_pub = self.create_publisher(msg_type=PoseStamped,
                                                   topic='position_estimate',
                                                   qos_profile=1)
+        
+        self.velocity_pub = self.create_publisher(msg_type=Vector3Stamped,
+                                                  topic='velocity_estimate',
+                                                  qos_profile=1)
 
         self.ranges_sub = self.create_subscription(
             msg_type=RangeMeasurementArray,
@@ -101,11 +106,11 @@ class PositionKalmanFilter(Node):
                                              rclpy.Parameter.Type.DOUBLE)])
         param = self.get_parameter('range_noise_stddev')
         self.get_logger().info(f'{param.name}={param.value}')
-        self.range_noise_stddev = param.value
+        self.range_noise_stddev = param.value # type: ignore
 
         param = self.get_parameter('process_noise_position_stddev')
         self.get_logger().info(f'{param.name}={param.value}')
-        self.process_noise_position_stddev = param.value
+        self.process_noise_position_stddev = param.value # type: ignore
 
     def on_params_changed(self, params):
         param: rclpy.Parameter
@@ -171,6 +176,9 @@ class PositionKalmanFilter(Node):
         self.prediction(dt)
         self.time_last_prediction = now
 
+        # publish the estimated velocity
+        self.publish_velocity_msg(state=np.copy(self.state), now=now)
+
         # publish the estimated pose with constant rate
         self.publish_pose_msg(state=np.copy(self.state), now=now)
 
@@ -233,7 +241,7 @@ class PositionKalmanFilter(Node):
         Returns:
             np.ndarray: observation matrix (dim: [m,n])
         """
-        
+
         H = np.zeros((self.num_measurements, self.num_states))
         
         for index, measurement in enumerate(measurements):
@@ -277,7 +285,8 @@ class PositionKalmanFilter(Node):
         self.state = matrix_A @ self.state # estimated state
         self.P = matrix_A @ self.P @ matrix_A.transpose() + self.Q # estimated covariance matrix
 
-    def publish_pose_msg(self, state: np.ndarray, now: rclpy.time.Time) -> None:
+    def publish_pose_msg(self, state: np.ndarray, 
+                         now: rclpy.time.Time) -> None: # type: ignore
         msg = PoseStamped()
 
         msg.header.stamp = now.to_msg()
@@ -288,6 +297,17 @@ class PositionKalmanFilter(Node):
 
         self.position_pub.publish(msg)
 
+    def publish_velocity_msg(self, state: np.ndarray, 
+                             now: rclpy.time.Time) -> None: # type: ignore
+        msg = Vector3Stamped()
+
+        msg.header.stamp = now.to_msg()
+        msg.header.frame_id = "map"
+        msg.vector.x = state[3, 0]
+        msg.vector.y = state[4, 0]
+        msg.vector.z = state[5, 0]
+
+        self.velocity_pub.publish(msg)
 
 def main():
     rclpy.init()

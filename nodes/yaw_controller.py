@@ -53,7 +53,7 @@ class YawController(Node):
         #yaw = self.wrap_pi(yaw)
 
         control_output = self.compute_control_output(yaw)
-        timestamp = rclpy.time.Time.from_msg(msg.header.stamp)
+        timestamp = rclpy.time.Time.from_msg(msg.header.stamp) # type: ignore
         self.publish_control_output(control_output, timestamp)
 
     def compute_control_output(self, yaw):
@@ -64,7 +64,7 @@ class YawController(Node):
         return p_gain * error
 
     def publish_control_output(self, control_output: float,
-                               timestamp: rclpy.time.Time):
+                               timestamp: rclpy.time.Time): # type: ignore
         msg = ActuatorSetpoint()
         msg.header.stamp = timestamp.to_msg()
         msg.ignore_x = True
