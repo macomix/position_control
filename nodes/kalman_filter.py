@@ -49,7 +49,7 @@ class PositionKalmanFilter(Node):
         # TODO tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
-        self.process_noise_position_stddev: float = 0.1
+        self.process_noise_position_stddev: float = 8.0
         self.Q = (self.process_noise_position_stddev**2) * np.eye(self.num_states)
 
         # measurement noise covariance - how much noise does the measurement
@@ -117,10 +117,10 @@ class PositionKalmanFilter(Node):
         for param in params:
             self.get_logger().info(f'Try to set [{param.name}] = {param.value}')
             if param.name == 'range_noise_stddev':
-                self.range_noise_stddev = param.value
+                self.range_noise_stddev = param.value # type: ignore
             elif param.name == 'process_noise_position_stddev':
-                self.process_noise_position_stddev = param.value
-                self.Q = (self.process_noise_position_stddev ** 2) * np.eye(self.num_states)
+                self.process_noise_position_stddev = param.value # type: ignore
+                self.Q = (self.process_noise_position_stddev ** 2) * np.eye(self.num_states) # type: ignore
             else:
                 continue
         return SetParametersResult(successful=True, reason='Parameter set')
@@ -152,6 +152,10 @@ class PositionKalmanFilter(Node):
         # before the measurement update, let's do a process update
         now = self.get_clock().now()
         dt = (now - self.time_last_prediction).nanoseconds * 1e-9
+
+        #self.get_logger().info(f'dt: {dt}, gain: {self.process_noise_position_stddev**2}')
+        self.Q = self.get_matrix_Q(dt) # update process noise
+
         self.prediction(dt)
         self.time_last_prediction = now
 
@@ -271,6 +275,36 @@ class PositionKalmanFilter(Node):
         A = np.concatenate((np.eye(3), dt* np.eye(3)), axis=1)
         B = np.concatenate((np.zeros((3,3)), np.eye(3)), axis=1)
         return np.concatenate((A,B), axis=0)
+
+    def get_matrix_Q(self, dt: float) -> np.ndarray:
+        """_summary_
+        process noise covariance - How much noise do we add at each prediction step? 
+        -> The higher dt the more time between measurements
+        which results in a higher uncertainty.
+        source 1: Wikipedia
+        There are multiple ways to calculate Q:
+            1) piecewise white noise model
+            2) continuous white noise model
+            3) ...
+
+        Args:
+            dt (float): delta time
+
+        Returns:
+            np.ndarray: covariance matrix of the process noise (dim: [n, n])
+        """
+        # in this case: piecewise white noise model
+        q0 = (dt**4)/4
+        q1 = (dt**3)/2
+        q2 = dt**2
+        # NOTE: Q has to be positive definite and symmetric
+        Q = np.array([[q0, 0, 0, q1, 0 ,0],
+                      [0, q0, 0, 0, q1, 0],
+                      [0, 0, q0, 0, 0, q1],
+                      [q1, 0, 0, q2, 0, 0],
+                      [0, q1, 0, 0, q2, 0],
+                      [0, 0, q1, 0, 0, q2]])
+        return (self.process_noise_position_stddev**2) * Q
 
     def prediction(self, dt: float):
         """_summary_

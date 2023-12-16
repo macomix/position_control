@@ -132,9 +132,10 @@ class PositionControlNode(Node):
     def compute_control_output(self, current_position: np.ndarray, 
                                timestamp: rclpy.time.Time) -> np.ndarray: # type: ignore
         # gains for each direction [k_p, k_i, k_d]
-        gain_x = np.array([1.0, 0.0, 3.0]) # 0.3
-        gain_y = np.array([1.0, 0.0, 3.0]) # 0.3
-        gain_z = np.array([1.0, 0.0, 3.0]) # 0.6
+        # TODO: z should depend on direction because of bouyancy
+        gain_x = np.array([1.0, 0.05, 3.0]) # 0.3
+        gain_y = np.array([1.0, 0.05, 3.0]) # 0.3
+        gain_z = np.array([1.0, 0.05, 3.0]) # 0.6
         gain = np.array([gain_x, gain_y, gain_z])
 
         # safe area for the robot to operate [min, max]
@@ -160,7 +161,7 @@ class PositionControlNode(Node):
             
             # only add thrust in the safe operating area [min, max]
             if pos < safe_space[i ,1] and pos > safe_space[i, 0]:
-                if error[i] < 0.05:
+                if np.abs(error[i]) < 0.05:
                     self.error_integral[i] = self.error_integral[i] + dt * error[i]
                 else:
                     self.error_integral[i] = 0
