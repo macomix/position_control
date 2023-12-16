@@ -23,9 +23,10 @@ class PositionKalmanFilter(Node):
 
         self.time_last_prediction = self.get_clock().now()
 
-        # TODO Assuming state consists of position x,y,z -> Feel free to add
-        # more!
-        self.num_states = 3
+        # state consists of :
+        # position x,y,z
+        # velocity x,y,z
+        self.num_states = 6
 
         # initial state
         self.x0 = np.zeros((self.num_states, 1))
@@ -56,17 +57,21 @@ class PositionKalmanFilter(Node):
         # dimension: num measurements x num measurements
         # attention, this size is varying! -> Depends on detected Tags
         # this means you have to create R on the go
-        self.range_noise_stddev: float = 0.1
+        self.range_noise_stddev: float = 0.1 # 1.0
 
-        # TODO: do this different
+        # TODO: maybe do this different
         self.num_measurements = 0
-        #self.curr_measurements = []
 
         # TODO enter tag poses here
-        # TODO in the experiment, the tags will not be in these exact positions
         # however, the relative positions between tags will be the same
         self.tag_poses = np.array([[0.7, 3.8, -0.5], [1.3, 3.8, -0.5], 
                                    [0.7, 3.8, -0.9], [1.3, 3.8, -0.9]])
+        
+        # self.offsetXYZ = np.array([0.634, 3.8, -0.498])
+        # self.tag_poses = np.array([[self.offsetXYZ[0], self.offsetXYZ[1], self.offsetXYZ[2]], 
+        #                            [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], self.offsetXYZ[2]], 
+        #                            [self.offsetXYZ[0], self.offsetXYZ[1], -0.89], 
+        #                            [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], -0.89]])
 
         self.position_pub = self.create_publisher(msg_type=PoseStamped,
                                                   topic='position_estimate',
@@ -185,8 +190,6 @@ class PositionKalmanFilter(Node):
         S = H @ self.P @ H.transpose() + R   # innovation covariance
         K = self.P @ H.transpose() @ np.linalg.inv(S)
 
-        
-        
         # update state
         state_next = self.state + K @ y
         
@@ -200,38 +203,79 @@ class PositionKalmanFilter(Node):
         self.P = P_next
 
     def get_innovation_y(self, vehicle_position_est, measurements) -> np.ndarray:
+        """_summary_
+        Calculates the difference between the prediction and the observation.
+
+        Args:
+            vehicle_position_est (_type_): x,y,z position of the robot
+            measurements (_type_): all of the measurements in an array
+
+        Returns:
+            np.ndarray: innovation y (dim: [m, 1])
+        """
         y = np.zeros(self.num_measurements)
 
         for index, measurement in enumerate(measurements):
-            # y = z-z_est
+            # y = z-z_estimated
             tag_id = measurement[1]
             y[index] = measurement[0] - np.linalg.norm(self.tag_poses[tag_id] - vehicle_position_est)
 
         return y.reshape(-1, 1)
     
     def get_jacobian_H(self, vehicle_position, measurements) -> np.ndarray:
+        """_summary_
+        Observation model, which estimates measurements based on the estimated state.
+
+        Args:
+            vehicle_position (_type_): x,y,z position of the robot
+            measurements (_type_): all of the measurements in an array
+
+        Returns:
+            np.ndarray: observation matrix (dim: [m,n])
+        """
+        
         H = np.zeros((self.num_measurements, self.num_states))
-        # TODO: calculate distance from vehicle_pos and tags instead of using measured distance
         
         for index, measurement in enumerate(measurements):
             tag_id = measurement[1]
-            distance = measurement[0]
+            distance = np.linalg.norm(self.tag_poses[tag_id] - vehicle_position)
             part_der_x = (vehicle_position[0]-self.tag_poses[tag_id, 0])/distance
             part_der_y = (vehicle_position[1]-self.tag_poses[tag_id, 1])/distance
             part_der_z = (vehicle_position[2]-self.tag_poses[tag_id, 2])/distance
-            H[index] = np.array([part_der_x, part_der_y, part_der_z])
+            H[index] = np.array([part_der_x, part_der_y, part_der_z, 0, 0, 0])
         
         return H
     
     def get_matrix_A(self, dt: float) -> np.ndarray:
-        # jacobian matrix for state-transition model (matrix A or F)
-        # TODO: make this actually do something with velocity
-        return np.eye(self.num_states)
+        """_summary_
+            This function creates the jacobian matrix 
+            for the state-transition model (matrix A or F).
+
+        Args:
+            dt (float): delta time
+
+        Returns:
+            np.ndarray: state-transition matrix (dim: [n,n])
+        """
+
+        # this creates a matrix eye(num_states) but also with dt
+        # to calculate e.g. x_next=x + dt * dx
+        A = np.concatenate((np.eye(3), dt* np.eye(3)), axis=1)
+        B = np.concatenate((np.zeros((3,3)), np.eye(3)), axis=1)
+        return np.concatenate((A,B), axis=0)
 
     def prediction(self, dt: float):
+        """_summary_
+            This function is the first part of the Kalman-Filter.
+            It makes a prediction on the current position of the robot.
+
+        Args:
+            dt (float): delta time
+        """
+
         matrix_A = self.get_matrix_A(dt)
-        self.state = matrix_A @ self.state # state_est_next
-        self.P = matrix_A @ self.P @ matrix_A.transpose() + self.Q # P_est_next
+        self.state = matrix_A @ self.state # estimated state
+        self.P = matrix_A @ self.P @ matrix_A.transpose() + self.Q # estimated covariance matrix
 
     def publish_pose_msg(self, state: np.ndarray, now: rclpy.time.Time) -> None:
         msg = PoseStamped()
