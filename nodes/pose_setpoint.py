@@ -2,6 +2,7 @@
 """
 This node publishes a setpoint for the position and yaw controller.
 """
+from xml.etree.ElementPath import xpath_tokenizer
 import rclpy
 from hippo_msgs.msg import Float64Stamped
 from rclpy.node import Node
@@ -18,7 +19,7 @@ class PoseSetpointNode(Node):
         self.start_time = self.get_clock().now()
 
         # change these parameters to adjust the setpoints
-        self.duration = 30.0  # in seconds
+        self.duration = 20.0  # in seconds
 
         self.position_setpoint_pub = self.create_publisher(msg_type=Vector3Stamped,
                                                         topic='position_setpoint',
@@ -43,7 +44,7 @@ class PoseSetpointNode(Node):
         position = np.array([1.0, 2.0, -0.3])
         velocity = np.zeros(3)
 
-        function = 0
+        function = 2
         match function:
             case 0:
                 # square sine
@@ -60,6 +61,21 @@ class PoseSetpointNode(Node):
                 posA = np.array([0.8, 2.0, -0.5])
                 posB = np.array([1.5, 2.5, -0.8])
                 pass
+            case 2:
+                # circle on xy-plane
+                center = np.array([1.0, 2.0, -0.5])
+                radius = 0.5
+                
+                # position
+                timeSeconds = time.nanoseconds * 1e-9
+                xPos = radius * np.cos(timeSeconds * (2*np.pi)/self.duration)
+                yPos = radius * np.sin(timeSeconds * (2*np.pi)/self.duration)
+                position = np.array([xPos, yPos, 0]) + center
+
+                # velocity
+                xVel = -radius * (2*np.pi)/self.duration * np.sin(timeSeconds * (2*np.pi)/self.duration)
+                yVel = radius * (2*np.pi)/self.duration * np.cos(timeSeconds * (2*np.pi)/self.duration)
+                velocity = np.array([xVel, yVel, 0])
             case _:
                 pass
 
