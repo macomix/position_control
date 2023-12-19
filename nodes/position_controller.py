@@ -133,9 +133,9 @@ class PositionControlNode(Node):
                                timestamp: rclpy.time.Time) -> np.ndarray: # type: ignore
         # gains for each direction [k_p, k_i, k_d]
         # TODO: z should depend on direction because of bouyancy
-        gain_x = np.array([1.0, 0.05, 3.0]) # 0.3
-        gain_y = np.array([1.0, 0.05, 3.0]) # 0.3
-        gain_z = np.array([1.0, 0.05, 3.0]) # 0.6
+        gain_x = np.array([0.0, 0.0, 0.0]) # ([1.0, 0.05, 3.0])
+        gain_y = np.array([0.0, 0.0, 0.0]) # ([1.0, 0.05, 3.0])
+        gain_z = np.array([0.0, 0.0, 0.0]) # ([1.0, 0.05, 3.0])
         gain = np.array([gain_x, gain_y, gain_z])
 
         # safe area for the robot to operate [min, max]

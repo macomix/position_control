@@ -58,21 +58,21 @@ class PositionKalmanFilter(Node):
         # dimension: num measurements x num measurements
         # attention, this size is varying! -> Depends on detected Tags
         # this means you have to create R on the go
-        self.range_noise_stddev: float = 0.1 # 1.0
+        self.range_noise_stddev: float = 1.0 # 1.0
 
         # TODO: maybe do this different
         self.num_measurements = 0
 
         # TODO enter tag poses here
         # however, the relative positions between tags will be the same
-        self.tag_poses = np.array([[0.7, 3.8, -0.5], [1.3, 3.8, -0.5], 
-                                   [0.7, 3.8, -0.9], [1.3, 3.8, -0.9]])
+        # self.tag_poses = np.array([[0.7, 3.8, -0.5], [1.3, 3.8, -0.5], 
+        #                            [0.7, 3.8, -0.9], [1.3, 3.8, -0.9]])
         
-        # self.offsetXYZ = np.array([0.634, 3.8, -0.498])
-        # self.tag_poses = np.array([[self.offsetXYZ[0], self.offsetXYZ[1], self.offsetXYZ[2]], 
-        #                            [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], self.offsetXYZ[2]], 
-        #                            [self.offsetXYZ[0], self.offsetXYZ[1], -0.89], 
-        #                            [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], -0.89]])
+        self.offsetXYZ = np.array([0.634, 3.8, -0.498])
+        self.tag_poses = np.array([[self.offsetXYZ[0], self.offsetXYZ[1], self.offsetXYZ[2]], 
+                                   [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], self.offsetXYZ[2]], 
+                                   [self.offsetXYZ[0], self.offsetXYZ[1], -0.89], 
+                                   [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], -0.89]])
 
         self.position_pub = self.create_publisher(msg_type=PoseStamped,
                                                   topic='position_estimate',

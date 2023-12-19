@@ -44,7 +44,7 @@ class PoseSetpointNode(Node):
         position = np.array([1.0, 2.0, -0.3])
         velocity = np.zeros(3)
 
-        function = 2
+        function = 0
         match function:
             case 0:
                 # square sine
@@ -58,8 +58,8 @@ class PoseSetpointNode(Node):
                 velocity = np.zeros(3)
             case 1:
                 # something
-                posA = np.array([0.8, 2.0, -0.5])
-                posB = np.array([1.5, 2.5, -0.8])
+                #posA = np.array([0.8, 2.0, -0.5])
+                #posB = np.array([1.5, 2.5, -0.5])
                 pass
             case 2:
                 # circle on xy-plane
