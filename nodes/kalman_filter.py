@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Extended Kalman filter
+"""
+
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Vector3Stamped
@@ -19,14 +23,20 @@ class PositionKalmanFilter(Node):
                          history=QoSHistoryPolicy.KEEP_LAST,
                          depth=1)
 
+        # TODO: tuning params we want to change at runtime
+        # change in config file or better: call "rqt"
+        # in terminal to dynamically change params at runtime
+        self.process_noise_position_stddev: float
+        self.range_noise_stddev: float
         self.init_params()
+        self.add_on_set_parameters_callback(self.on_params_changed)
 
         self.time_last_prediction = self.get_clock().now()
 
-        # state consists of :
+        # state (dimension: n):
         # position x,y,z
         # velocity x,y,z
-        self.num_states = 6
+        self.num_states = 6 
 
         # initial state
         self.x0 = np.zeros((self.num_states, 1))
@@ -43,25 +53,12 @@ class PositionKalmanFilter(Node):
         # state covariance, this will be updated in Kalman filter algorithm
         self.P = self.P0
 
-        # process noise covariance - how much noise do we add at each
-        # prediction step? -> the higher dt the more time between measurements
-        # which results in a higher uncertainty
-        # TODO tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
-        self.process_noise_position_stddev: float = 8.0
         self.Q = (self.process_noise_position_stddev**2) * np.eye(self.num_states)
-
-        # measurement noise covariance - how much noise does the measurement
-        # contain?
-        # TODO tuning knob
-        # dimension: num measurements x num measurements
-        # attention, this size is varying! -> Depends on detected Tags
-        # this means you have to create R on the go
-        self.range_noise_stddev: float = 1.0 # 1.0
-
-        # TODO: maybe do this different
-        self.num_measurements = 0
+        
+        # TODO: maybe dont save this here
+        self.num_measurements = 0 # dimension: m
 
         # TODO enter tag poses here
         # however, the relative positions between tags will be the same
@@ -74,6 +71,7 @@ class PositionKalmanFilter(Node):
                                    [self.offsetXYZ[0], self.offsetXYZ[1], -0.89], 
                                    [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], -0.89]])
 
+        # publisher
         self.position_pub = self.create_publisher(msg_type=PoseStamped,
                                                   topic='position_estimate',
                                                   qos_profile=1)
@@ -82,6 +80,7 @@ class PositionKalmanFilter(Node):
                                                   topic='velocity_estimate',
                                                   qos_profile=1)
 
+        # subscriber
         self.ranges_sub = self.create_subscription(
             msg_type=RangeMeasurementArray,
             topic='ranges',
@@ -106,21 +105,21 @@ class PositionKalmanFilter(Node):
                                              rclpy.Parameter.Type.DOUBLE)])
         param = self.get_parameter('range_noise_stddev')
         self.get_logger().info(f'{param.name}={param.value}')
-        self.range_noise_stddev = param.value # type: ignore
+        self.range_noise_stddev = param.get_parameter_value().double_value
 
         param = self.get_parameter('process_noise_position_stddev')
         self.get_logger().info(f'{param.name}={param.value}')
-        self.process_noise_position_stddev = param.value # type: ignore
+        self.process_noise_position_stddev = param.get_parameter_value().double_value
 
     def on_params_changed(self, params):
         param: rclpy.Parameter
         for param in params:
             self.get_logger().info(f'Try to set [{param.name}] = {param.value}')
             if param.name == 'range_noise_stddev':
-                self.range_noise_stddev = param.value # type: ignore
+                self.range_noise_stddev = param.get_parameter_value().double_value
             elif param.name == 'process_noise_position_stddev':
-                self.process_noise_position_stddev = param.value # type: ignore
-                self.Q = (self.process_noise_position_stddev ** 2) * np.eye(self.num_states) # type: ignore
+                self.process_noise_position_stddev = param.get_parameter_value().double_value
+                self.Q = (self.process_noise_position_stddev ** 2) * np.eye(self.num_states)
             else:
                 continue
         return SetParametersResult(successful=True, reason='Parameter set')
@@ -174,6 +173,8 @@ class PositionKalmanFilter(Node):
 
     def on_prediction_step_timer(self):
         # We will do a prediction step with a constant rate
+        self.get_logger().debug(f'Hi')
+
         now = self.get_clock().now()
         dt = (now - self.time_last_prediction).nanoseconds * 1e-9
 
@@ -195,7 +196,7 @@ class PositionKalmanFilter(Node):
         # jacobian of observation TODO: probably change the whole calculation of H
         H = self.get_jacobian_H(vehicle_position, measurements)
 
-        # 
+        # covariance of the observation noise (dim: [m, m])
         R = (self.range_noise_stddev ** 2) * np.eye(self.num_measurements)
 
         # compute Kalman gain
@@ -215,8 +216,7 @@ class PositionKalmanFilter(Node):
         self.P = P_next
 
     def get_innovation_y(self, vehicle_position_est, measurements) -> np.ndarray:
-        """_summary_
-        Calculates the difference between the prediction and the observation.
+        """Calculates the difference between the prediction and the observation.
 
         Args:
             vehicle_position_est (_type_): x,y,z position of the robot
@@ -235,8 +235,7 @@ class PositionKalmanFilter(Node):
         return y.reshape(-1, 1)
     
     def get_jacobian_H(self, vehicle_position, measurements) -> np.ndarray:
-        """_summary_
-        Observation model, which estimates measurements based on the estimated state.
+        """Observation model, which estimates measurements based on the estimated state.
 
         Args:
             vehicle_position (_type_): x,y,z position of the robot
@@ -245,7 +244,7 @@ class PositionKalmanFilter(Node):
         Returns:
             np.ndarray: observation matrix (dim: [m,n])
         """
-
+        
         H = np.zeros((self.num_measurements, self.num_states))
         
         for index, measurement in enumerate(measurements):
@@ -259,9 +258,8 @@ class PositionKalmanFilter(Node):
         return H
     
     def get_matrix_A(self, dt: float) -> np.ndarray:
-        """_summary_
-            This function creates the jacobian matrix 
-            for the state-transition model (matrix A or F).
+        """This function creates the jacobian matrix 
+        for the state-transition model (matrix A or F).
 
         Args:
             dt (float): delta time
@@ -277,8 +275,7 @@ class PositionKalmanFilter(Node):
         return np.concatenate((A,B), axis=0)
 
     def get_matrix_Q(self, dt: float) -> np.ndarray:
-        """_summary_
-        process noise covariance - How much noise do we add at each prediction step? 
+        """process noise covariance - How much noise do we add at each prediction step? 
         -> The higher dt the more time between measurements
         which results in a higher uncertainty.
         source 1: Wikipedia
@@ -307,9 +304,8 @@ class PositionKalmanFilter(Node):
         return (self.process_noise_position_stddev**2) * Q
 
     def prediction(self, dt: float):
-        """_summary_
-            This function is the first part of the Kalman-Filter.
-            It makes a prediction on the current position of the robot.
+        """This function is the first part of the Kalman-Filter.
+        It makes a prediction on the current position of the robot.
 
         Args:
             dt (float): delta time

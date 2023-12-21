@@ -1,4 +1,11 @@
 /**: # wildcard for the node name
   ros__parameters:
-    range_noise_stddev: 0.1    # in m
-    process_noise_position_stddev: 0.1  # in m
+    # measurement noise covariance - how much noise does the measurement contain?
+    # in m
+    range_noise_stddev: 0.1 # real: 1.0; sim: 0.1
+
+    # process noise covariance - how much noise do we add at each
+    # prediction step? -> the higher dt the more time between measurements
+    # which results in a higher uncertainty
+    # in m
+    process_noise_position_stddev: 8.0 # real: 8.0; sim: 8.0
