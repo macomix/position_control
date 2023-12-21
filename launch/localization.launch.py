@@ -24,7 +24,9 @@ def generate_launch_description() -> LaunchDescription:
              parameters=[
                  LaunchConfiguration('kf_params_file_path',
                                      default=kf_params_file_path)
-             ], arguments=['--ros-args', '--log-level', 'INFO']),
+             ], 
+             arguments=['--ros-args', '--log-level', 'INFO']
+             ),
         Node(executable='ranges_debugger.py', package='position_control'),
         Node(executable='pose_setpoint.py', package='position_control')
         # add more here

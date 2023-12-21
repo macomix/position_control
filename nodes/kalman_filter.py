@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extended Kalman filter
+Extended Kalman filter (EKF)
 """
 
 import numpy as np
@@ -13,6 +13,10 @@ from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 
 from tf_transformations import euler_from_quaternion
 
+class SimpleRangeMeasurement():
+    def __init__(self,range,tag_id) -> None:
+        self.range = range
+        self.id = tag_id
 
 class PositionKalmanFilter(Node):
 
@@ -48,7 +52,7 @@ class PositionKalmanFilter(Node):
         # TODO initial state covariance is tuning knob
         # dimension: num states x num states
         # matrix needs to be positive definite and symmetric
-        self.P0 = 0.1 * np.eye(self.num_states)
+        self.P0 = 0.01 * np.eye(self.num_states)
 
         # state covariance, this will be updated in Kalman filter algorithm
         self.P = self.P0
@@ -62,14 +66,14 @@ class PositionKalmanFilter(Node):
 
         # TODO enter tag poses here
         # however, the relative positions between tags will be the same
-        # self.tag_poses = np.array([[0.7, 3.8, -0.5], [1.3, 3.8, -0.5], 
-        #                            [0.7, 3.8, -0.9], [1.3, 3.8, -0.9]])
+        self.tag_poses = np.array([[0.7, 3.8, -0.5], [1.3, 3.8, -0.5], 
+                                   [0.7, 3.8, -0.9], [1.3, 3.8, -0.9]])
         
-        self.offsetXYZ = np.array([0.634, 3.8, -0.498])
-        self.tag_poses = np.array([[self.offsetXYZ[0], self.offsetXYZ[1], self.offsetXYZ[2]], 
-                                   [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], self.offsetXYZ[2]], 
-                                   [self.offsetXYZ[0], self.offsetXYZ[1], -0.89], 
-                                   [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], -0.89]])
+        # self.offsetXYZ = np.array([0.634, 3.8, -0.498])
+        # self.tag_poses = np.array([[self.offsetXYZ[0], self.offsetXYZ[1], self.offsetXYZ[2]], 
+        #                            [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], self.offsetXYZ[2]], 
+        #                            [self.offsetXYZ[0], self.offsetXYZ[1], -0.89], 
+        #                            [self.offsetXYZ[0] + 0.635, self.offsetXYZ[1], -0.89]])
 
         # publisher
         self.position_pub = self.create_publisher(msg_type=PoseStamped,
@@ -119,7 +123,6 @@ class PositionKalmanFilter(Node):
                 self.range_noise_stddev = param.get_parameter_value().double_value
             elif param.name == 'process_noise_position_stddev':
                 self.process_noise_position_stddev = param.get_parameter_value().double_value
-                self.Q = (self.process_noise_position_stddev ** 2) * np.eye(self.num_states)
             else:
                 continue
         return SetParametersResult(successful=True, reason='Parameter set')
@@ -132,28 +135,20 @@ class PositionKalmanFilter(Node):
         if not self.num_measurements:
             return
 
-        # TODO: probably collect measurements and calculate position
-        measurements: list[tuple[float, int]] = []
+        # only save necessary information for ease of use
+        measurements: list[SimpleRangeMeasurement] = []
 
         measurement: RangeMeasurement
         for index, measurement in enumerate(ranges_msg.measurements):
-            tag_id = measurement.id
-            measured_distance = measurement.range
-            # self.get_logger().info(
-            #     f'The {index}. element contains the measurement of tag {tag_id} with the '
-            #     f'distance of {measured_distance}m')
-            # TODO
-            measurements.append((measured_distance, tag_id))
-            #measurements[index] = [measured_distance, tag_id]
-
-        #self.get_logger().info(f'Measurements {measurements}')
+            new_measurement = SimpleRangeMeasurement(range=measurement.range, tag_id=measurement.id)
+            measurements.append(new_measurement)
 
         # before the measurement update, let's do a process update
         now = self.get_clock().now()
         dt = (now - self.time_last_prediction).nanoseconds * 1e-9
 
-        #self.get_logger().info(f'dt: {dt}, gain: {self.process_noise_position_stddev**2}')
-        self.Q = self.get_matrix_Q(dt) # update process noise
+        # and update the process noise
+        self.Q = self.get_matrix_Q(dt) 
 
         self.prediction(dt)
         self.time_last_prediction = now
@@ -187,21 +182,24 @@ class PositionKalmanFilter(Node):
         # publish the estimated pose with constant rate
         self.publish_pose_msg(state=np.copy(self.state), now=now)
 
-    def measurement_update(self, measurements: list[tuple[float, int]]):
+    def measurement_update(self, measurements: list[SimpleRangeMeasurement]):
+        """
+        Update step of the Kalman filter algorithm.
+
+        Args:
+            measurements (list[SimpleRangeMeasurement]): range measurement list
+        """
         vehicle_position = np.copy(self.state[0:3, 0])
         
-        # diff between estimated measurement based on predicted position and actual measurements
         y = self.get_innovation_y(vehicle_position, measurements)
 
-        # jacobian of observation TODO: probably change the whole calculation of H
         H = self.get_jacobian_H(vehicle_position, measurements)
 
         # covariance of the observation noise (dim: [m, m])
         R = (self.range_noise_stddev ** 2) * np.eye(self.num_measurements)
 
-        # compute Kalman gain
         S = H @ self.P @ H.transpose() + R   # innovation covariance
-        K = self.P @ H.transpose() @ np.linalg.inv(S)
+        K = self.P @ H.transpose() @ np.linalg.inv(S)   # Kalman gain
 
         # update state
         state_next = self.state + K @ y
@@ -209,18 +207,16 @@ class PositionKalmanFilter(Node):
         # update covariance
         P_next = (np.eye(self.num_states) - (K @ H)) @ self.P
 
-        #self.get_logger().info(f'y: {y}')
-        #self.get_logger().info(f'Next state: {state_next}' f'Current state: {self.state}')
-
         self.state = state_next
         self.P = P_next
 
-    def get_innovation_y(self, vehicle_position_est, measurements) -> np.ndarray:
-        """Calculates the difference between the prediction and the observation.
+    def get_innovation_y(self, vehicle_position_est: np.ndarray, measurements: list[SimpleRangeMeasurement]) -> np.ndarray:
+        """
+        Calculates the difference between the prediction and the observation.
 
         Args:
-            vehicle_position_est (_type_): x,y,z position of the robot
-            measurements (_type_): all of the measurements in an array
+            vehicle_position_est (np.ndarray): x,y,z position of the robot
+            measurements (list[SimpleRangeMeasurement]): all of the measurements in an array
 
         Returns:
             np.ndarray: innovation y (dim: [m, 1])
@@ -229,17 +225,21 @@ class PositionKalmanFilter(Node):
 
         for index, measurement in enumerate(measurements):
             # y = z-z_estimated
-            tag_id = measurement[1]
-            y[index] = measurement[0] - np.linalg.norm(self.tag_poses[tag_id] - vehicle_position_est)
+            tag_id = measurement.id
+            y[index] = measurement.range - np.linalg.norm(self.tag_poses[tag_id] - vehicle_position_est).astype(float)
 
         return y.reshape(-1, 1)
     
-    def get_jacobian_H(self, vehicle_position, measurements) -> np.ndarray:
-        """Observation model, which estimates measurements based on the estimated state.
+    def get_jacobian_H(self, vehicle_position: np.ndarray, measurements: list[SimpleRangeMeasurement]) -> np.ndarray:
+        """
+        Observation model, which estimates measurements based on the estimated state.
+        For EKF H is basically the Jacobian of the measurements:
+          z = H*x + v
+          z = distance
 
         Args:
-            vehicle_position (_type_): x,y,z position of the robot
-            measurements (_type_): all of the measurements in an array
+            vehicle_position (np.ndarray): x,y,z position of the robot
+            measurements (list[SimpleRangeMeasurement]): all of the measurements in an array
 
         Returns:
             np.ndarray: observation matrix (dim: [m,n])
@@ -248,7 +248,7 @@ class PositionKalmanFilter(Node):
         H = np.zeros((self.num_measurements, self.num_states))
         
         for index, measurement in enumerate(measurements):
-            tag_id = measurement[1]
+            tag_id = measurement.id
             distance = np.linalg.norm(self.tag_poses[tag_id] - vehicle_position)
             part_der_x = (vehicle_position[0]-self.tag_poses[tag_id, 0])/distance
             part_der_y = (vehicle_position[1]-self.tag_poses[tag_id, 1])/distance
@@ -257,8 +257,9 @@ class PositionKalmanFilter(Node):
         
         return H
     
-    def get_matrix_A(self, dt: float) -> np.ndarray:
-        """This function creates the jacobian matrix 
+    def get_jacobian_A(self, dt: float) -> np.ndarray:
+        """
+        This function creates the jacobian matrix 
         for the state-transition model (matrix A or F).
 
         Args:
@@ -275,7 +276,8 @@ class PositionKalmanFilter(Node):
         return np.concatenate((A,B), axis=0)
 
     def get_matrix_Q(self, dt: float) -> np.ndarray:
-        """process noise covariance - How much noise do we add at each prediction step? 
+        """
+        process noise covariance - How much noise do we add at each prediction step? 
         -> The higher dt the more time between measurements
         which results in a higher uncertainty.
         source 1: Wikipedia
@@ -304,14 +306,15 @@ class PositionKalmanFilter(Node):
         return (self.process_noise_position_stddev**2) * Q
 
     def prediction(self, dt: float):
-        """This function is the first part of the Kalman-Filter.
+        """
+        This function is the first part of the Kalman-Filter.
         It makes a prediction on the current position of the robot.
 
         Args:
             dt (float): delta time
         """
 
-        matrix_A = self.get_matrix_A(dt)
+        matrix_A = self.get_jacobian_A(dt)
         self.state = matrix_A @ self.state # estimated state
         self.P = matrix_A @ self.P @ matrix_A.transpose() + self.Q # estimated covariance matrix
 
@@ -338,6 +341,8 @@ class PositionKalmanFilter(Node):
         msg.vector.z = state[5, 0]
 
         self.velocity_pub.publish(msg)
+
+
 
 def main():
     rclpy.init()

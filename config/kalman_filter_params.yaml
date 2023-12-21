@@ -1,4 +1,4 @@
-/**: # wildcard for the node name
+/**: # node name
   ros__parameters:
     # measurement noise covariance - how much noise does the measurement contain?
     # in m
@@ -9,3 +9,4 @@
     # which results in a higher uncertainty
     # in m
     process_noise_position_stddev: 8.0 # real: 8.0; sim: 8.0
+

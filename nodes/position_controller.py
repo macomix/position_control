@@ -5,10 +5,9 @@ based on a given input position.
 """
 import numpy as np
 
-from sympy import euler
-
 import rclpy
 from hippo_msgs.msg import ActuatorSetpoint
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from geometry_msgs.msg import PoseStamped, Vector3Stamped, Vector3, PoseWithCovarianceStamped
@@ -24,9 +23,18 @@ class PositionControlNode(Node):
         qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                          history=QoSHistoryPolicy.KEEP_LAST,
                          depth=1)
+        
+        # gains for each direction [k_p, k_i, k_d]
+        self.gains_x = np.zeros(3)
+        self.gains_y = np.zeros(3)
+        self.gains_z = np.zeros(3)
+        self.init_params()
+        self.add_on_set_parameters_callback(self.on_params_changed)
+
+        self.get_logger().info(f'{self.gains_x}')
 
         self.current_setpoint = np.zeros(3)
-        self.rotation_matrix = np.eye(3)
+        self.quaternion = np.zeros(4) # w, x, y, z
 
         self.velocity = np.zeros(3)
         self.setpoint_velocity = np.zeros(3)
@@ -71,6 +79,38 @@ class PositionControlNode(Node):
                                                     callback=self.on_vision_pose,
                                                     qos_profile=qos)
 
+    def init_params(self):
+        # load params from config
+        self.declare_parameters(namespace='',
+                                parameters=[
+                                    ("gains_x", rclpy.Parameter.Type.DOUBLE_ARRAY),
+                                    ("gains_y", rclpy.Parameter.Type.DOUBLE_ARRAY),
+                                    ("gains_z", rclpy.Parameter.Type.DOUBLE_ARRAY)
+                                             ])
+        
+        param = self.get_parameter('gains_x')
+        self.gains_x = param.get_parameter_value().double_array_value
+
+        param = self.get_parameter('gains_y')
+        self.gains_y = param.get_parameter_value().double_array_value
+
+        param = self.get_parameter('gains_z')
+        self.gains_z = param.get_parameter_value().double_array_value
+
+    def on_params_changed(self, params):
+        param: rclpy.Parameter
+        for param in params:
+            self.get_logger().info(f'Try to set [{param.name}] = {param.value}')
+            if param.name == 'gains_x':
+                self.gains_x = param.get_parameter_value().double_array_value
+            elif param.name == 'gains_y':
+                self.gains_y = param.get_parameter_value().double_array_value
+            elif param.name == 'gains_z':
+                self.gains_z = param.get_parameter_value().double_array_value
+            else:
+                continue
+        return SetParametersResult(successful=True, reason='Parameter set')
+    
     def on_setpoint(self, setpoint_msg: Vector3Stamped):
         # on setpoint message received save data
         self.current_setpoint = np.array([setpoint_msg.vector.x,setpoint_msg.vector.y,setpoint_msg.vector.z])
@@ -95,6 +135,9 @@ class PositionControlNode(Node):
         # option 2:
         timestamp = rclpy.time.Time.from_msg(position_msg.header.stamp) # type: ignore
 
+        if np.array_equal(self.quaternion, np.zeros(4)):
+            self.get_logger().warn(f'nothing yet received from vision_pose_cov')
+        
         thrust = self.compute_control_output(current_position, timestamp)
 
         self.publish_thrust(thrust=thrust, timestamp=timestamp)
@@ -106,11 +149,10 @@ class PositionControlNode(Node):
     def on_vision_pose(self, msg: PoseWithCovarianceStamped):
         # get the vehicle orientation expressed as quaternion
         q = msg.pose.pose.orientation
-        # convert quaternion to euler angles
-        (roll, pitch, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        # convert quaternion to euler angles -> dont
+        #(roll, pitch, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-        #self.rotation_matrix = euler_rotation_matrix(0, 0, yaw)
-        self.rotation_matrix = quaternion_rotation_matrix(q.w, q.x, q.y, q.z)
+        self.quaternion = np.array([q.w, q.x, q.y, q.z])
 
     def publish_thrust(self, thrust: np.ndarray, 
                        timestamp: rclpy.time.Time) -> None: # type: ignore
@@ -131,12 +173,8 @@ class PositionControlNode(Node):
 
     def compute_control_output(self, current_position: np.ndarray, 
                                timestamp: rclpy.time.Time) -> np.ndarray: # type: ignore
-        # gains for each direction [k_p, k_i, k_d]
-        # TODO: z should depend on direction because of bouyancy
-        gain_x = np.array([0.0, 0.0, 0.0]) # ([1.0, 0.05, 3.0])
-        gain_y = np.array([0.0, 0.0, 0.0]) # ([1.0, 0.05, 3.0])
-        gain_z = np.array([0.0, 0.0, 0.0]) # ([1.0, 0.05, 3.0])
-        gain = np.array([gain_x, gain_y, gain_z])
+        
+        gain = np.array([self.gains_x, self.gains_y, self.gains_z])
 
         # safe area for the robot to operate [min, max]
         safe_space_x = np.array([0.1, 1.9])
@@ -176,11 +214,11 @@ class PositionControlNode(Node):
                 thrust[i] = 0.0
 
         # convert to local space of the robot
-        thrust = np.matmul(self.rotation_matrix.transpose(), thrust.reshape((-1,1)))
+        thrust = vector3_rotate(vector3=thrust, quaternion=self.quaternion)
         
         # publish some information for debugging and documentation
         self.publish_pid_info(gain, error, self.error_integral, derivative_error, timestamp)
-
+        
         self.last_time = self.get_clock().now().nanoseconds * 10e-9
         return thrust.reshape(-1)
 
@@ -201,7 +239,6 @@ class PositionControlNode(Node):
         
         self.pid_debug_pub.publish(msg)
         
-# TODO: put utility functions into separate file
 def clamp(number, smallest, largest):
     return max(smallest, min(number, largest))
 
@@ -217,48 +254,19 @@ def numpy_to_vector3(array: np.ndarray) -> Vector3:
     
     return rosVector
 
-def quaternion_rotation_matrix(w, x, y, z):
-     
-    # First row of the rotation matrix
-    r00 = 1-2*y*y-2*z*z
-    r01 = 2*x*y-2*z*w
-    r02 = 2*x*z+2*y*w
-     
-    # Second row of the rotation matrix
-    r10 = 2*x*y+2*z*w
-    r11 = 1-2*x*x-2*z*z
-    r12 = 2*y*z-2*x*w
-     
-    # Third row of the rotation matrix
-    r20 = 2*x*z-2*y*w
-    r21 = 2*y*z+2*x*w
-    r22 = 1-2*x*x-2*y*y
-     
-    # 3x3 rotation matrix
-    rot_matrix = np.array([[r00, r01, r02],
-                           [r10, r11, r12],
-                           [r20, r21, r22]])
-                            
-    return rot_matrix
+def quaternion_multiply(quaternion0: np.ndarray, quaternion1: np.ndarray) -> np.ndarray:
+    # Hamilton multiplication
+    w0, x0, y0, z0 = quaternion0
+    w1, x1, y1, z1 = quaternion1
+    return np.array([-x1 * x0 - y1 * y0 - z1 * z0 + w1 * w0,
+                     x1 * w0 + y1 * z0 - z1 * y0 + w1 * x0,
+                     -x1 * z0 + y1 * w0 + z1 * x0 + w1 * y0,
+                     x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0], dtype=np.float64)
 
-def euler_rotation_matrix(roll, pitch, yaw):
-    # radiant
-    Rx = np.array([[1, 0, 0],
-                   [0, np.cos(roll), -np.sin(roll)],
-                   [0, np.sin(roll), np.cos(roll)]])
-    
-    Ry = np.array([[np.cos(pitch), 0, np.sin(pitch)],
-                   [0, 1, 0],
-                   [-np.sin(pitch), 0, np.cos(pitch)]])
-    
-    Rz = np.array([[np.cos(yaw), -np.sin(yaw), 0],
-                   [np.sin(yaw), np.cos(yaw), 0],
-                   [0, 0, 1]])
-    
-    Rxy = np.matmul(Rx, Ry)
-    R = np.matmul(Rxy, Rz)
-
-    return R
+def vector3_rotate(vector3: np.ndarray, quaternion: np.ndarray) -> np.ndarray:
+    q_vec = np.append(0.0, vector3) # 0, x, y, z
+    q_inverse = np.concatenate(([quaternion[0]], -quaternion[1:])) # w, -x, -y, -z
+    return quaternion_multiply(quaternion, quaternion_multiply(q_vec, q_inverse))[1:]
 
 
 def main():

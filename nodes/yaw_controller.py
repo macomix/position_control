@@ -60,7 +60,7 @@ class YawController(Node):
         # very important: normalize the angle error!
         error = self.wrap_pi(self.setpoint - yaw)
 
-        p_gain = 0.1  # turned out to be a good value
+        p_gain = 0.1 # 0.6
         return p_gain * error
 
     def publish_control_output(self, control_output: float,

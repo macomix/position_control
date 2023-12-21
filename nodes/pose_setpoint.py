@@ -19,7 +19,7 @@ class PoseSetpointNode(Node):
         self.start_time = self.get_clock().now()
 
         # change these parameters to adjust the setpoints
-        self.duration = 20.0  # in seconds
+        self.duration = 30.0  # in seconds
 
         self.position_setpoint_pub = self.create_publisher(msg_type=Vector3Stamped,
                                                         topic='position_setpoint',
@@ -41,7 +41,7 @@ class PoseSetpointNode(Node):
         now = self.get_clock().now()
         time = self.start_time - now
 
-        position = np.array([1.0, 2.0, -0.3])
+        position = np.array([1.0, 2.5, -0.3])
         velocity = np.zeros(3)
 
         function = 0
@@ -50,18 +50,13 @@ class PoseSetpointNode(Node):
                 # square sine
                 i = time.nanoseconds * 1e-9 % (self.duration * 2)
                 if i > (self.duration):
-                    position =  np.array([0.8, 2.0, -0.5])
+                    position =  np.array([0.8, 2.5, -0.3])
                 else:
-                    position =  np.array([1.5, 2.5, -0.8])
+                    position =  np.array([1.2, 1.5, -0.6])
 
                 # set the velocity for square wave zero
                 velocity = np.zeros(3)
             case 1:
-                # something
-                #posA = np.array([0.8, 2.0, -0.5])
-                #posB = np.array([1.5, 2.5, -0.5])
-                pass
-            case 2:
                 # circle on xy-plane
                 center = np.array([1.0, 2.0, -0.5])
                 radius = 0.5

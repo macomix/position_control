@@ -1,0 +1,12 @@
+/**:
+  ros__parameters:
+    # gains for each direction [k_p, k_i, k_d]
+    # pid gains irl
+    # gains_x: [0.5, 0.0, 0.0]
+    # gains_y: [0.5, 0.0, 0.0]
+    # gains_z: [2.0, 0.0, 0.0]
+
+    # pid gains sim
+    gains_x: [1.0, 0.05, 3.0]
+    gains_y: [1.0, 0.05, 3.0]
+    gains_z: [1.0, 0.05, 3.0]
