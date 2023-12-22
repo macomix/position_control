@@ -1,6 +1,6 @@
 # Project Repository README
 
-This repository is part of a university project and is based on [original repository link](https://github.com/original-repo](https://github.com/FormulasAndVehicles/position_control_template) with certain modifications and additions.
+This repository is part of a university project and is based on [original repository link](https://github.com/FormulasAndVehicles/position_control_template ) with certain modifications and additions.
 
 ## Overview
 
