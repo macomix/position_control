@@ -173,7 +173,16 @@ class PositionControlNode(Node):
 
     def compute_control_output(self, current_position: np.ndarray, 
                                timestamp: rclpy.time.Time) -> np.ndarray: # type: ignore
-        
+        """
+        The main PID-controller calculations happen in this function.
+
+        Args:
+            current_position (np.ndarray): position computed by the Kalman filter
+            timestamp (rclpy.time.Time): time of the received data
+
+        Returns:
+            np.ndarray: output thrust in x,y,z direction of the robot
+        """
         gain = np.array([self.gains_x, self.gains_y, self.gains_z])
 
         # safe area for the robot to operate [min, max]
@@ -238,11 +247,12 @@ class PositionControlNode(Node):
         msg.header.stamp = timestamp.to_msg()
         
         self.pid_debug_pub.publish(msg)
-        
+      
 def clamp(number, smallest, largest):
     return max(smallest, min(number, largest))
 
 def numpy_to_vector3(array: np.ndarray) -> Vector3:
+    # function for safe and convenient type conversion
     arr = array.reshape((1,-1))
     if arr.shape != (1, 3):
         raise ValueError("Size of numpy error does not match a Vector3.")
@@ -264,6 +274,8 @@ def quaternion_multiply(quaternion0: np.ndarray, quaternion1: np.ndarray) -> np.
                      x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0], dtype=np.float64)
 
 def vector3_rotate(vector3: np.ndarray, quaternion: np.ndarray) -> np.ndarray:
+    # directly transforms a vector3 using quaternions
+    # (much better than euler anglers and faster than rotation matrices)
     q_vec = np.append(0.0, vector3) # 0, x, y, z
     q_inverse = np.concatenate(([quaternion[0]], -quaternion[1:])) # w, -x, -y, -z
     return quaternion_multiply(quaternion, quaternion_multiply(q_vec, q_inverse))[1:]

@@ -343,7 +343,6 @@ class PositionKalmanFilter(Node):
         self.velocity_pub.publish(msg)
 
 
-
 def main():
     rclpy.init()
     node = PositionKalmanFilter()
